@@ -1,0 +1,8 @@
+[package]
+name = "luminmq-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mio = { version = "1.0.4", features = ["os-poll", "net"] }
+tokio = { version = "1.4.0", features = ["rt", "rt-multi-thread", "macros"] }
