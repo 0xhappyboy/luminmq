@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     io::{self, Read, Write},
     str::from_utf8,
+    sync::{Arc, RwLock},
 };
 
 use mio::{
@@ -11,15 +12,16 @@ use mio::{
     net::{TcpListener, TcpStream},
 };
 
-use crate::config::LISTENER_PORT;
+use crate::{channel::Channel, config::LISTENER_PORT};
 
 const SERVER_TOKEN: Token = Token(0);
 const DATA: &[u8] = b"test data\n";
 
 pub struct LuminMQServer;
+
 impl LuminMQServer {
     pub async fn start() -> std::io::Result<()> {
-        let addr = LISTENER_PORT.parse().unwrap();
+        let addr = LISTENER_PORT.lock().unwrap().parse().unwrap();
         let mut listener = TcpListener::bind(addr)?;
         let mut poll = Poll::new()?;
         let mut events = Events::with_capacity(1024);
