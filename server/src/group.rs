@@ -11,12 +11,15 @@ use crate::channel::Channel;
 lazy_static! {
     // a collection of global static message queue groups.
     // k: group id v: group
-    pub static ref MAP: Arc<RwLock<HashMap<String, Group>>> =
+    pub static ref GROUPS: Arc<RwLock<HashMap<String, Group>>> =
         Arc::new(RwLock::new(HashMap::<String, Group>::default()));
 }
 
 pub struct Groups;
-impl Groups {}
+impl Groups {
+    pub fn is(group_id: String) {}
+    pub fn insert() {}
+}
 
 /// message queue group, the same topic in the same group shares a message channel.
 pub struct Group {

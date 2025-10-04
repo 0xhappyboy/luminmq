@@ -1,28 +1,22 @@
+/// communication protocol
 use bincode::{Decode, Encode, config};
 use std::mem;
 
 use crate::msg::Message;
 
-/// communication protocol
-
+// fixed protocol identifier
 const PROTOCOL_IDENTIFIER: &str = "luminmq";
 
 /// protocol header
 #[derive(Encode, Decode, PartialEq, Debug)]
 pub struct ProtocolHead {
-    // Fixed-length protocol identifier.
+    // fixed-length protocol identifier.
     identifier: String,
-    // data size
+    // the byte size of the data area
     data_size: u32,
 }
 
 impl ProtocolHead {
-    pub fn new() -> Self {
-        Self {
-            identifier: PROTOCOL_IDENTIFIER.to_string(),
-            data_size: 1024,
-        }
-    }
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let head: ProtocolHead = unsafe { std::ptr::read(bytes.as_ptr() as *const _) };
         head
@@ -37,10 +31,11 @@ impl ProtocolHead {
         }
     }
     // get the byte size of the protocol header
-    pub fn size(&self) -> usize {
-        let len = self.identifier.len();
-        let size_of_data = len * mem::size_of::<u8>();
-        size_of_data
+    pub fn size() -> usize {
+        let len = PROTOCOL_IDENTIFIER.len();
+        let identifier_size = len * mem::size_of::<u8>();
+        let data_area_size = mem::size_of::<u32>();
+        identifier_size + data_area_size
     }
 }
 
@@ -50,10 +45,11 @@ pub struct Protocol {
 }
 
 impl Protocol {
+    // bytes size = protocol header size + data area size.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self {
-            protocol_head: (),
-            message: (),
+            protocol_head: todo!(),
+            message: todo!(),
         }
     }
 }
