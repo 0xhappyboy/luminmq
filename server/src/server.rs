@@ -1,9 +1,10 @@
 /// a server module for lumin message queues.
 use std::{
     collections::HashMap,
-    io::{self, Read, Write},
+    f32::consts::E,
+    io::{self, BufRead, BufReader, BufWriter, Read, Write},
     str::from_utf8,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use mio::{
@@ -12,10 +13,23 @@ use mio::{
     net::{TcpListener, TcpStream},
 };
 
-use crate::{channel::Channel, config::LISTENER_PORT};
+use crate::{
+    channel::Channel,
+    config::LISTENER_PORT,
+    protocol::{PROTOCOL_IDENTIFIER, Protocol, ProtocolHead},
+};
+use lazy_static::lazy_static;
 
 const SERVER_TOKEN: Token = Token(0);
 const DATA: &[u8] = b"test data\n";
+
+lazy_static! {
+    // connection pool
+    pub static ref CONNECTION_POOL: Mutex<HashMap<Token, TcpStream>> = Mutex::new(HashMap::<Token, TcpStream>::default());
+    // connection pool and gourp bind
+    // k: token v: (group id, topic)
+    pub static ref CONNECTION_POOL_GROUP_BIND: Mutex<HashMap<Token, (String, String)>> = Mutex::new(HashMap::<Token, (String, String)>::default());
+}
 
 pub struct LuminMQServer;
 
@@ -25,7 +39,7 @@ impl LuminMQServer {
         let mut listener = TcpListener::bind(addr)?;
         let mut poll = Poll::new()?;
         let mut events = Events::with_capacity(1024);
-        let mut connections = HashMap::<Token, TcpStream>::new();
+        // let mut connections = HashMap::<Token, TcpStream>::new();
         poll.registry()
             .register(&mut listener, Token(0), Interest::READABLE)
             .unwrap();
@@ -50,11 +64,13 @@ impl LuminMQServer {
                             token,
                             Interest::READABLE.add(Interest::WRITABLE),
                         )?;
-                        connections.insert(token, connection);
+                        CONNECTION_POOL.lock().unwrap().insert(token, connection);
                         println!("New connection!");
                     },
                     token => {
-                        let done = if let Some(connection) = connections.get_mut(&token) {
+                        let done = if let Some(connection) =
+                            CONNECTION_POOL.lock().unwrap().get_mut(&token)
+                        {
                             match handle_connection_event(poll.registry(), connection, event) {
                                 Ok(_) => false,
                                 Err(_) => true,
@@ -63,7 +79,7 @@ impl LuminMQServer {
                             false
                         };
                         if done {
-                            connections.remove(&token);
+                            CONNECTION_POOL.lock().unwrap().remove(&token);
                         }
                     }
                     _ => {}
@@ -79,7 +95,10 @@ fn handle_connection_event(
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_writable() {
-        match connection.write(DATA) {
+        let head = ProtocolHead::default();
+        let protocol_buf = head.to_byte_vec();
+
+        match connection.write(&protocol_buf) {
             Ok(n) if n < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
             Ok(_) => registry.reregister(connection, event.token(), Interest::READABLE)?,
             Err(ref err) if would_block(err) => {}
@@ -91,41 +110,38 @@ fn handle_connection_event(
             }
         }
     }
-
     if event.is_readable() {
-        let mut connection_closed = false;
-        let mut received_data = vec![0; 4096];
-        let mut bytes_read = 0;
+        let mut r: BufReader<&TcpStream> = BufReader::new(connection);
+        const protocol_head_size: usize = ProtocolHead::size();
+        let mut protocol_buf = vec![0u8; protocol_head_size];
         loop {
-            match connection.read(&mut received_data[bytes_read..]) {
+            match r.read(&mut protocol_buf) {
                 Ok(0) => {
-                    connection_closed = true;
+                    // connection close
                     break;
                 }
                 Ok(n) => {
-                    bytes_read += n;
-                    if bytes_read == received_data.len() {
-                        received_data.resize(received_data.len() + 1024, 0);
+                    let protocel_head = ProtocolHead::from_bytes(&protocol_buf[..]);
+                    if protocel_head.identifier == PROTOCOL_IDENTIFIER {
+                        // consumption
+                        r.consume(protocol_head_size);
+
+                        let data_area_size = protocel_head.data_area_size();
+
+                        let mut protocol_body_buf = vec![0u8; data_area_size];
+                        r.read(&mut protocol_body_buf);
+
+                        todo!()
+
+                    } else {
+                        // discard invalid bytes
+                        r.consume(protocol_head_size);
                     }
                 }
                 Err(ref err) if would_block(err) => break,
                 Err(ref err) if interrupted(err) => continue,
                 Err(err) => return Err(err),
             }
-        }
-
-        if bytes_read != 0 {
-            let received_data = &received_data[..bytes_read];
-            if let Ok(str_buf) = from_utf8(received_data) {
-                println!("Received data: {}", str_buf.trim_end());
-            } else {
-                println!("Received (none UTF-8) data: {:?}", received_data);
-            }
-        }
-
-        if connection_closed {
-            println!("Connection closed");
-            return Ok(true);
         }
     }
     Ok(false)

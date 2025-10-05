@@ -6,14 +6,24 @@ use std::{
 
 use crate::msg::Message;
 
+/// Consumption mode for messages within a channel.
+pub enum ChannelMode {
+    // The server actively pushes the message in the channel to the consumer.
+    Push,
+    // The server waits for the consumer to pull data from the channel.
+    Pull,
+}
+
 /// message channel
 pub struct Channel {
     message_queue: VecDeque<Message>,
+    mode: ChannelMode,
 }
 impl Channel {
-    pub fn new() -> Self {
+    pub fn new(mode: ChannelMode) -> Self {
         Self {
             message_queue: VecDeque::new(),
+            mode: mode,
         }
     }
     // first in

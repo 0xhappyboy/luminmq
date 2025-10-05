@@ -5,18 +5,24 @@ use std::mem;
 use crate::msg::Message;
 
 // fixed protocol identifier
-pub const PROTOCOL_IDENTIFIER: &str = "luminmq";
+const PROTOCOL_IDENTIFIER: &str = "luminmq";
 
 /// protocol header
 #[derive(Encode, Decode, PartialEq, Debug)]
 pub struct ProtocolHead {
     // fixed-length protocol identifier.
-    pub identifier: String,
+    identifier: String,
     // the byte size of the data area
-    pub data_size: u32,
+    data_size: u32,
 }
 
 impl ProtocolHead {
+    pub fn new() -> Self {
+        Self {
+            identifier: PROTOCOL_IDENTIFIER.to_string(),
+            data_size: 1024,
+        }
+    }
     // determine whether it is the luminmq communication protocol.
     pub fn is(bytes: &[u8]) -> bool {
         let head = ProtocolHead::from_bytes(bytes);
@@ -25,10 +31,6 @@ impl ProtocolHead {
         } else {
             false
         }
-    }
-    // protocol data area size
-    pub fn data_area_size(&self) -> usize {
-        self.data_size.try_into().unwrap()
     }
     // get the byte size of the protocol header
     pub const fn size() -> usize {
@@ -47,15 +49,6 @@ impl ProtocolHead {
         let config = config::standard();
         let bytes: Vec<u8> = bincode::encode_to_vec(&self, config).unwrap();
         bytes
-    }
-}
-
-impl Default for ProtocolHead {
-    fn default() -> Self {
-        Self {
-            identifier: PROTOCOL_IDENTIFIER.to_string(),
-            data_size: 1024,
-        }
     }
 }
 

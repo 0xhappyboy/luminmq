@@ -7,6 +7,7 @@ use mio::{Events, Interest, Poll, Registry, Token};
 use std::collections::HashMap;
 use std::f32::consts::E;
 use std::io::{self, Read, Write};
+use std::mem;
 use std::net::SocketAddr;
 use std::str::from_utf8;
 
