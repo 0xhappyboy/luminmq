@@ -5,4 +5,5 @@ pub mod http;
 pub mod msg;
 pub mod protocol;
 pub mod server;
+pub mod tool;
 pub mod topic;

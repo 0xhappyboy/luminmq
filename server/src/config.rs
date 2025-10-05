@@ -7,4 +7,6 @@ lazy_static! {
     pub static ref MAX_EVENT_POLL_CAPACITY: Mutex<u16> = Mutex::new(1024);
     // message queue server listener port
     pub static ref LISTENER_PORT: Mutex<String> = Mutex::new("0.0.0.0:8080".to_string());
+    // http listener port
+    pub static ref HTTP_LISTENER_PORT: Mutex<String> = Mutex::new("0.0.0.0:8081".to_string());
 }

@@ -1,10 +1,8 @@
 /// a server module for lumin message queues.
 use std::{
     collections::HashMap,
-    f32::consts::E,
-    io::{self, BufRead, BufReader, BufWriter, Read, Write},
-    str::from_utf8,
-    sync::{Arc, Mutex, RwLock},
+    io::{self, BufRead, BufReader, Read, Write},
+    sync::Mutex,
 };
 
 use mio::{
@@ -13,11 +11,7 @@ use mio::{
     net::{TcpListener, TcpStream},
 };
 
-use crate::{
-    channel::Channel,
-    config::LISTENER_PORT,
-    protocol::{PROTOCOL_IDENTIFIER, Protocol, ProtocolHead},
-};
+use crate::{config::LISTENER_PORT, protocol::Protocol};
 use lazy_static::lazy_static;
 
 const SERVER_TOKEN: Token = Token(0);
@@ -49,12 +43,12 @@ impl LuminMQServer {
             for event in &events {
                 match event.token() {
                     SERVER_TOKEN => loop {
-                        let (mut connection, address) = match listener.accept() {
+                        let (mut connection, _address) = match listener.accept() {
                             Ok((connection, address)) => (connection, address),
                             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 break;
                             }
                         };
@@ -65,8 +59,8 @@ impl LuminMQServer {
                             Interest::READABLE.add(Interest::WRITABLE),
                         )?;
                         CONNECTION_POOL.lock().unwrap().insert(token, connection);
-                        println!("New connection!");
                     },
+                    // system buffer changes
                     token => {
                         let done = if let Some(connection) =
                             CONNECTION_POOL.lock().unwrap().get_mut(&token)
@@ -95,11 +89,11 @@ fn handle_connection_event(
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_writable() {
-        let head = ProtocolHead::default();
-        let protocol_buf = head.to_byte_vec();
-
+        let mut protocol = &mut Protocol::default();
+        protocol.ready();
+        let protocol_buf = protocol.to_byte_vec();
         match connection.write(&protocol_buf) {
-            Ok(n) if n < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(n) if n < protocol_buf.len() => return Err(io::ErrorKind::WriteZero.into()),
             Ok(_) => registry.reregister(connection, event.token(), Interest::READABLE)?,
             Err(ref err) if would_block(err) => {}
             Err(ref err) if interrupted(err) => {
@@ -112,36 +106,35 @@ fn handle_connection_event(
     }
     if event.is_readable() {
         let mut r: BufReader<&TcpStream> = BufReader::new(connection);
-        const protocol_head_size: usize = ProtocolHead::size();
-        let mut protocol_buf = vec![0u8; protocol_head_size];
-        loop {
-            match r.read(&mut protocol_buf) {
-                Ok(0) => {
-                    // connection close
-                    break;
-                }
-                Ok(n) => {
-                    let protocel_head = ProtocolHead::from_bytes(&protocol_buf[..]);
-                    if protocel_head.identifier == PROTOCOL_IDENTIFIER {
-                        // consumption
-                        r.consume(protocol_head_size);
-
-                        let data_area_size = protocel_head.data_area_size();
-
-                        let mut protocol_body_buf = vec![0u8; data_area_size];
-                        r.read(&mut protocol_body_buf);
-
-                        todo!()
-
-                    } else {
-                        // discard invalid bytes
-                        r.consume(protocol_head_size);
-                    }
-                }
-                Err(ref err) if would_block(err) => break,
-                Err(ref err) if interrupted(err) => continue,
-                Err(err) => return Err(err),
+        let mut protocol_head_buf = vec![0u8; Protocol::protocol_head_size()];
+        match r.read(&mut protocol_head_buf) {
+            Ok(0) => {
+                // connection close
             }
+            Ok(_n) => {
+                if Protocol::verify_protocol_head(&protocol_head_buf) {
+                    // build protocol
+                    let mut protocol = &mut Protocol::default();
+                    // build protocol head
+                    protocol = protocol.build_protocol_head_by_bytes(&protocol_head_buf);
+                    // consume system buffer
+                    r.consume(Protocol::protocol_head_size());
+                    // data area size
+                    let data_area_size = protocol.protocol_body_size();
+                    if data_area_size > 0 {
+                        let mut protocol_body_buf = vec![0u8; data_area_size.try_into().unwrap()];
+                        // data area buf
+                        r.read(&mut protocol_body_buf);
+                        protocol.build_protocol_body_by_bytes(&protocol_body_buf);
+                    }
+                } else {
+                    // discard invalid data areas
+                    r.consume(Protocol::protocol_head_size());
+                }
+            }
+            Err(ref err) if would_block(err) => {}
+            Err(ref err) if interrupted(err) => {}
+            Err(err) => return Err(err),
         }
     }
     Ok(false)
