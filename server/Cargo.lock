@@ -317,9 +317,12 @@ dependencies = [
 name = "luminmq-server"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "lazy_static",
  "luminmq-core",
  "mio",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
