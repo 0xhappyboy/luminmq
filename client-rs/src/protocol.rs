@@ -87,7 +87,8 @@ impl Protocol {
             match r.fill_buf() {
                 Ok(buf) => {
                     let protocol_head_size = Protocol::protocol_head_size();
-                    if buf.len() >= protocol_head_size {
+                    let buf_1 = buf.len();
+                    if buf_1 >= protocol_head_size {
                         let protocol_head_buf = &buf[..protocol_head_size];
                         if Protocol::verify_protocol_head(&protocol_head_buf) {
                             // build protocol
@@ -97,32 +98,35 @@ impl Protocol {
                             // consume system buffer
                             r.consume(protocol_head_size);
                             let protocol_body_size = protocol.head.data_size as usize;
-                            loop {
-                                if protocol_body_size > 0 {
-                                    match r.fill_buf() {
-                                        Ok(buf) => {
-                                            if buf.len() >= protocol_body_size {
-                                                let protocol_body_buf = &buf[..protocol_body_size];
-                                                match protocol.build_protocol_body_by_bytes(
-                                                    &protocol_body_buf,
-                                                ) {
-                                                    Ok(protocol) => {
-                                                        r.consume(protocol_body_size);
-                                                        let p = protocol.clone();
-                                                        return Ok(p);
-                                                    }
-                                                    Err(_) => {
-                                                        return Err(
-                                                            "protocol body serialization exception.".to_string(),
-                                                        );
-                                                    }
+                            if protocol_body_size > 0 {
+                                match r.fill_buf() {
+                                    Ok(buf) => {
+                                        let buf_2 = buf.len();
+                                        if buf_2 >= protocol_body_size {
+                                            let protocol_body_buf = &buf[..protocol_body_size];
+                                            match protocol
+                                                .build_protocol_body_by_bytes(&protocol_body_buf)
+                                            {
+                                                Ok(protocol) => {
+                                                    r.consume(protocol_body_size);
+                                                    let p = protocol.clone();
+                                                    return Ok(p);
                                                 }
-                                            } else {
-                                                break;
+                                                Err(_) => {
+                                                    return Err(
+                                                        "protocol body serialization exception."
+                                                            .to_string(),
+                                                    );
+                                                }
                                             }
+                                        } else if buf_2 < protocol_body_size {
+                                            r.consume(buf_2);
+                                            return Err("dirty data.".to_string());
+                                        } else if buf_2 == 0 {
+                                            return Err("link is closed.".to_string());
                                         }
-                                        Err(_) => break,
                                     }
+                                    Err(_) => return Err("not enough data in buffer".to_string()),
                                 }
                             }
                         } else {
@@ -130,9 +134,14 @@ impl Protocol {
                                 "the protocol header does not meet the requirements".to_string()
                             );
                         }
-                    } else {
-                        r.consume(protocol_head_size);
-                        return Err("not enough data in buffer".to_string());
+                    } else if buf_1 < protocol_head_size {
+                        r.consume(buf_1);
+                        return Err(
+                            "dirty data, the buffer data does not meet the protocol header size."
+                                .to_string(),
+                        );
+                    } else if buf_1 == 0 {
+                        return Err("link is closed.".to_string());
                     }
                 }
                 Err(_) => return Err("buffer is empty".to_string()),
