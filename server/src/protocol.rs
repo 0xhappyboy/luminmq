@@ -1,89 +1,20 @@
-use axum::body;
 /// communication protocol
-use bincode::{Decode, Encode, config};
-use std::mem;
+use bincode::{Decode, Encode, error::DecodeError};
+use mio::net::TcpStream;
+use std::io::{BufRead, BufReader};
 
 use crate::{
     msg::{Message, MessageDTO},
-    tool::codec::{decode, encode},
+    tool::codec::{decode, encode, serialized_size},
 };
 
 // fixed protocol identifier
 pub const PROTOCOL_IDENTIFIER: &str = "luminmq";
 
-/// protocol header
-#[derive(Encode, Decode, PartialEq, Debug, Clone)]
-struct ProtocolHead {
-    // fixed-length protocol identifier.
-    pub identifier: String,
-    // the byte size of the data area
-    pub data_size: u32,
-}
-
-impl ProtocolHead {
-    // determine whether it is the luminmq communication protocol.
-    pub fn is(bytes: &[u8]) -> bool {
-        match ProtocolHead::from_bytes(bytes) {
-            Ok(protocol_head) => {
-                if protocol_head.identifier == PROTOCOL_IDENTIFIER {
-                    true
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        }
-    }
-    // get the byte size of the protocol header
-    pub const fn size() -> usize {
-        let len = PROTOCOL_IDENTIFIER.len();
-        let identifier_size = len * mem::size_of::<u8>();
-        let size = mem::size_of::<u32>();
-        identifier_size + size
-    }
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        decode(bytes)
-    }
-    pub fn to_byte_vec(&self) -> Vec<u8> {
-        encode(self)
-    }
-    pub fn set_data_size(&mut self, data_size: u32) {
-        self.data_size = data_size;
-    }
-}
-
-impl Default for ProtocolHead {
-    fn default() -> Self {
-        Self {
-            identifier: PROTOCOL_IDENTIFIER.to_string(),
-            data_size: 0,
-        }
-    }
-}
-
-#[derive(Encode, Decode, PartialEq, Debug, Clone)]
-struct ProtocolBody {
-    pub message: Option<MessageDTO>,
-}
-
-impl ProtocolBody {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        decode(bytes)
-    }
-}
-
-impl Default for ProtocolBody {
-    fn default() -> Self {
-        Self {
-            message: Some(MessageDTO::default()),
-        }
-    }
-}
-
 #[derive(Encode, Decode, PartialEq, Debug, Clone)]
 pub struct Protocol {
     pub head: ProtocolHead,
-    pub body: Option<ProtocolBody>,
+    pub body: ProtocolBody,
 }
 
 impl Protocol {
@@ -111,18 +42,24 @@ impl Protocol {
         }
     }
     // build protocol body
-    pub fn build_protocol_body_by_bytes(&mut self, bytes: &[u8]) -> &mut Self {
+    pub fn build_protocol_body_by_bytes(&mut self, bytes: &[u8]) -> Result<&mut Self, &mut Self> {
         match ProtocolBody::from_bytes(bytes) {
             Ok(body) => {
-                self.body = Some(body);
-                return self;
+                self.body = body;
+                return Ok(self);
             }
-            Err(_) => return self,
+            Err(_e) => {
+                return Ok(self);
+            }
         }
     }
     // to byte vec
     pub fn to_byte_vec(&self) -> Vec<u8> {
         encode(self)
+    }
+    // protocol head size
+    pub fn protocol_head_size() -> usize {
+        ProtocolHead::size()
     }
     // protocol body size
     // when calling this function, the protocol header should have been initialized.
@@ -131,37 +68,171 @@ impl Protocol {
     }
     // perform preparations before transmission.
     pub fn ready(&mut self) -> Result<&mut Self, ()> {
-        if self.body.is_none() {
-            Err(())
-        } else if self.head.data_size == 0 {
-            let size = self.body.clone().unwrap().message.unwrap().size();
-            self.head.set_data_size(size as u32);
-            Ok(self)
-        } else {
-            Ok(self)
-        }
+        self.head
+            .set_data_size(self.body.size().try_into().unwrap());
+        Ok(self)
     }
     // get message
     pub fn get_message(&self) -> Result<Message, ()> {
-        match &self.body {
-            Some(body) => match &body.message {
-                Some(m) => Ok(m.to_message()),
-                None => Err(()),
-            },
-            None => Err(()),
+        Ok(self.body.message.to_message())
+    }
+    // insert message
+    pub fn insert_message(&mut self, message_dto: MessageDTO) {
+        self.body.insert_message(message_dto);
+    }
+    // protocol reader
+    pub fn reader(stream: &TcpStream) -> Result<Protocol, String> {
+        let mut r: BufReader<&TcpStream> = BufReader::new(stream);
+        loop {
+            match r.fill_buf() {
+                Ok(buf) => {
+                    let protocol_head_size = Protocol::protocol_head_size();
+                    if buf.len() >= protocol_head_size {
+                        let protocol_head_buf = &buf[..protocol_head_size];
+                        if Protocol::verify_protocol_head(&protocol_head_buf) {
+                            // build protocol
+                            let mut protocol = &mut Protocol::default();
+                            // build protocol head
+                            protocol = protocol.build_protocol_head_by_bytes(&protocol_head_buf);
+                            // consume system buffer
+                            r.consume(protocol_head_size);
+                            let protocol_body_size = protocol.head.data_size as usize;
+                            loop {
+                                if protocol_body_size > 0 {
+                                    match r.fill_buf() {
+                                        Ok(buf) => {
+                                            if buf.len() >= protocol_body_size {
+                                                let protocol_body_buf = &buf[..protocol_body_size];
+                                                match protocol.build_protocol_body_by_bytes(
+                                                    &protocol_body_buf,
+                                                ) {
+                                                    Ok(protocol) => {
+                                                        r.consume(protocol_body_size);
+                                                        let p = protocol.clone();
+                                                        return Ok(p);
+                                                    }
+                                                    Err(_) => {
+                                                        return Err(
+                                                            "protocol body serialization exception.".to_string(),
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(
+                                "the protocol header does not meet the requirements".to_string()
+                            );
+                        }
+                    } else {
+                        r.consume(protocol_head_size);
+                        return Err("not enough data in buffer".to_string());
+                    }
+                }
+                Err(_) => return Err("buffer is empty".to_string()),
+            }
         }
     }
-    // protocol head size
-    pub fn protocol_head_size() -> usize {
-        ProtocolHead::size()
-    }
+    // protocol writer
+    pub fn writer(&self, stream: &TcpStream) {}
 }
 
 impl Default for Protocol {
     fn default() -> Protocol {
-        Protocol {
-            head: ProtocolHead::default(),
-            body: Some(ProtocolBody::default()),
+        let mut head = ProtocolHead::default();
+        let body = ProtocolBody::default();
+        let body_size = body.size();
+        head.set_data_size(body_size.try_into().unwrap());
+        let p = Protocol {
+            head: head,
+            body: body,
+        };
+        p
+    }
+}
+
+/// protocol header
+#[derive(Encode, Decode, PartialEq, Debug, Clone)]
+pub struct ProtocolHead {
+    // fixed-length protocol identifier.
+    pub identifier: String,
+    // the byte size of the data area
+    pub data_size: u32,
+}
+
+impl ProtocolHead {
+    // determine whether it is the luminmq communication protocol.
+    pub fn is(bytes: &[u8]) -> bool {
+        match ProtocolHead::from_bytes(bytes) {
+            Ok(protocol_head) => {
+                if protocol_head.identifier == PROTOCOL_IDENTIFIER {
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        }
+    }
+    // get the byte size of the protocol header
+    pub fn size() -> usize {
+        serialized_size(ProtocolHead::default())
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        decode(bytes)
+    }
+    pub fn to_byte_vec(&self) -> Vec<u8> {
+        encode(self)
+    }
+    pub fn set_data_size(&mut self, data_size: u32) {
+        self.data_size = data_size;
+    }
+}
+
+impl Default for ProtocolHead {
+    fn default() -> Self {
+        Self {
+            identifier: PROTOCOL_IDENTIFIER.to_string(),
+            data_size: 0,
+        }
+    }
+}
+
+#[derive(Encode, Decode, PartialEq, Debug, Clone)]
+pub struct ProtocolBody {
+    pub message: MessageDTO,
+}
+
+impl ProtocolBody {
+    pub fn new(message_dto: MessageDTO) -> Self {
+        Self {
+            message: message_dto,
+        }
+    }
+    pub fn size(&self) -> usize {
+        serialized_size(self)
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        decode(bytes)
+    }
+    pub fn to_byte_vec(&self) -> Vec<u8> {
+        encode(self)
+    }
+    pub fn insert_message(&mut self, message_dto: MessageDTO) {
+        self.message = message_dto;
+    }
+}
+
+impl Default for ProtocolBody {
+    fn default() -> Self {
+        Self {
+            message: MessageDTO::default(),
         }
     }
 }

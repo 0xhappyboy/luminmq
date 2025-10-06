@@ -18,7 +18,7 @@ impl Topic {
 impl Default for Topic {
     fn default() -> Self {
         Self {
-            name: "default-topic-1".to_string(),
+            name: "".to_string(),
         }
     }
 }

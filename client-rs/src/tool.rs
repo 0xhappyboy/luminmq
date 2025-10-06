@@ -17,7 +17,9 @@ pub mod common {
 }
 
 pub mod codec {
-    use bincode::{Decode, Encode, config};
+    use std::io::Error;
+
+    use bincode::{Decode, Encode, config, error::DecodeError};
     // coding
     pub fn encode<T>(t: T) -> Vec<u8>
     where
@@ -28,7 +30,7 @@ pub mod codec {
         bytes
     }
     // decoding
-    pub fn decode<T>(bytes: &[u8]) -> Result<T, ()>
+    pub fn decode<T>(bytes: &[u8]) -> Result<T, DecodeError>
     where
         T: Decode<()>,
     {
@@ -36,8 +38,15 @@ pub mod codec {
         match bincode::decode_from_slice::<T, _>(&bytes[..], config) {
             Ok((decoded, len)) => return Ok(decoded),
             Err(e) => {
-                return Err(());
+                return Err(e);
             }
         }
+    }
+    // The serialized size of type T in bytes
+    pub fn serialized_size<T>(t: T) -> usize
+    where
+        T: Encode,
+    {
+        encode(t).len()
     }
 }

@@ -1,32 +1,28 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{Arc, RwLock},
     thread,
     time::Duration,
 };
 
-use crate::{
-    group::{self, GroupMode},
-    msg::Message,
-    server::CONNECTION_POOL_GROUP_BIND,
-    tool::common::get_keys_for_value,
-    topic::Topic,
-};
+use crate::{group::GroupMode, msg::Message, topic::Topic};
 
 /// Consumption mode for messages within a channel.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ChannelMode {
     // The server actively pushes the message in the channel to the consumer.
     Push,
     // The server waits for the consumer to pull data from the channel.
     Pull,
+    // none
+    None,
 }
 
 /// message channel
 pub struct Channel {
-    topic: Topic,
-    group_id: String,
-    mode: ChannelMode,
+    pub topic: Topic,
+    pub group_id: String,
+    pub mode: ChannelMode,
     group_mode: GroupMode,
     message_queue: Arc<RwLock<VecDeque<Message>>>,
 }
@@ -52,6 +48,10 @@ impl Channel {
     pub fn is_empty(&self) -> bool {
         self.message_queue.read().unwrap().is_empty()
     }
+    // message num
+    pub fn message_num(&self) -> u64 {
+        self.message_queue.read().unwrap().len().try_into().unwrap()
+    }
     pub fn start(&self) {
         let group_id = self.group_id.clone();
         let topic = self.topic.clone();
@@ -65,21 +65,23 @@ impl Channel {
                     GroupMode::Broadcast => match channel_mode {
                         ChannelMode::Push => {
                             thread::sleep(Duration::from_millis(1000));
-                            // get all connection pool token by (group id, topic)
-                            let token_vec = get_keys_for_value(
-                                CONNECTION_POOL_GROUP_BIND.lock().unwrap(),
-                                (group_id.clone(), topic.name.clone()),
-                            );
-                            // get all connection by token
-                            token_vec.iter().for_each(|token| {});
+                            // // get all connection pool token by (group id, topic)
+                            // let token_vec = get_keys_for_value(
+                            //     CONNECTION_POOL_GROUP_BIND.lock().unwrap(),
+                            //     (group_id.clone(), topic.name.clone()),
+                            // );
+                            // // get all connection by token
+                            // token_vec.iter().for_each(|token| {});
                         }
                         ChannelMode::Pull => {}
+                        ChannelMode::None => todo!(),
                     },
                     GroupMode::Cluster => match channel_mode {
                         ChannelMode::Push => {
                             thread::sleep(Duration::from_millis(1000));
                         }
                         ChannelMode::Pull => {}
+                        ChannelMode::None => todo!(),
                     },
                 }
             }

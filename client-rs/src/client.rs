@@ -1,9 +1,9 @@
-use std::io::{BufReader, Write};
+use std::io::Write;
 
 use mio::{Events, Interest, Poll, Token, net::TcpStream};
 
-use crate::{config::LISTENER_PORT, protocol::Protocol};
-use std::io::{self, BufRead, BufWriter, Read};
+use crate::{config::LISTENER_PORT, msg::Message, protocol::Protocol, topic::Topic};
+use std::io::{self};
 
 /// luminmq client module
 pub struct LuminMQClient;
@@ -24,44 +24,20 @@ impl LuminMQClient {
                 match event.token() {
                     Token(0) => {
                         if event.is_readable() {
-                            let mut r = BufReader::new(&stream);
-                            let mut protocol_head_buf = vec![0u8; Protocol::protocol_head_size()];
-                            match r.read(&mut protocol_head_buf) {
-                                Ok(0) => {
-                                    // connection close
-                                }
-                                Ok(n) => {
-                                    if Protocol::verify_protocol_head(&protocol_head_buf) {
-                                        // build protocol
-                                        let mut protocol = &mut Protocol::default();
-                                        // build protocol head
-                                        protocol = protocol
-                                            .build_protocol_head_by_bytes(&protocol_head_buf);
-                                        // consume system buffer
-                                        r.consume(Protocol::protocol_head_size());
-                                        // data area size
-                                        let data_area_size = protocol.protocol_body_size();
-                                        if data_area_size > 0 {
-                                            let mut protocol_body_buf =
-                                                vec![0u8; data_area_size.try_into().unwrap()];
-                                            // data area buf
-                                            r.read(&mut protocol_body_buf);
-                                            protocol
-                                                .build_protocol_body_by_bytes(&protocol_body_buf);
-                                        }
-                                    } else {
-                                        // discard invalid data areas
-                                        r.consume(Protocol::protocol_head_size());
-                                    }
-                                }
-                                Err(ref err) if would_block(err) => {}
-                                Err(ref err) if interrupted(err) => {}
-                                Err(err) => return Err(err),
+                            match Protocol::reader(&stream) {
+                                Ok(p) => {}
+                                Err(e) => println!("{:?}", e),
                             }
                         }
 
                         if event.is_writable() {
                             let mut protocol = &mut Protocol::default();
+                            let mut msg = Message::default();
+                            msg.group_id = "group-test".to_string();
+                            msg.topic = Topic::new("topic-test".to_string());
+                            msg.consumer_type = crate::msg::ConsumerType::Send;
+                            msg.msg_type = crate::msg::MessageType::Business;
+                            protocol.insert_message(msg.to_messagedto());
                             protocol.ready();
                             let protocol_buf = protocol.to_byte_vec();
                             match stream.write(&protocol_buf) {
@@ -82,7 +58,6 @@ impl LuminMQClient {
                 }
             }
         }
-        Ok(())
     }
 }
 

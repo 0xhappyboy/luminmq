@@ -1,6 +1,7 @@
 use std::mem;
 
-use bincode::{Decode, Encode, config};
+use bincode::{Decode, Encode, error::DecodeError};
+use mio::net::TcpStream;
 
 use crate::{
     tool::codec::{decode, encode},
@@ -65,23 +66,25 @@ impl MessageDTO {
             data: data,
         }
     }
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         decode(bytes)
     }
     pub fn to_byte_vec(&self) -> Vec<u8> {
         encode(self)
     }
     pub fn size(&self) -> usize {
-        // message type field size
-        let msg_type_size = mem::size_of::<u16>();
         // group id size
-        let group_id_size = self.group_id.len() * mem::size_of::<u8>();
+        let group_id_size = self.group_id.len() * mem::size_of::<u8>() + 8;
         // topic size
-        let topic_size = self.topic.len() * mem::size_of::<u8>();
+        let topic_size = self.topic.len() * mem::size_of::<u8>() + 8;
+        //  msg type size
+        let msg_type_size = mem::size_of::<u16>();
+        // consumer type size
+        let consumer_type_size = mem::size_of::<u16>();
         // data size
-        let data_size = self.data.len() * mem::size_of::<u8>();
+        let data_size = self.data.len() * mem::size_of::<u8>() + 8;
         // total size
-        msg_type_size + group_id_size + topic_size + data_size
+        group_id_size + topic_size + msg_type_size + consumer_type_size + data_size
     }
     pub fn to_message(&self) -> Message {
         Message {
@@ -111,22 +114,22 @@ impl MessageDTO {
 impl Default for MessageDTO {
     fn default() -> Self {
         Self {
-            group_id: "group-test".to_string(),
-            topic: "topic-test".to_string(),
-            msg_type: 1,
-            consumer_type: 1,
-            data: "test data".to_string(),
+            group_id: "".to_string(),
+            topic: "".to_string(),
+            msg_type: 0,
+            consumer_type: 0,
+            data: "".to_string(),
         }
     }
 }
 
 #[derive(Encode, Decode, PartialEq, Debug, Clone)]
 pub struct Message {
-    group_id: String,
-    topic: Topic,
-    data: String,
-    msg_type: MessageType,
-    consumer_type: ConsumerType,
+    pub group_id: String,
+    pub topic: Topic,
+    pub data: String,
+    pub msg_type: MessageType,
+    pub consumer_type: ConsumerType,
 }
 
 impl Message {
@@ -168,16 +171,18 @@ impl Message {
             self.data.to_string(),
         )
     }
+    /// message handle
+    pub fn handle(&self, mut stream: &TcpStream) {}
 }
 
 impl Default for Message {
     fn default() -> Self {
         Self {
-            group_id: "default-group-1".to_string(),
+            group_id: "".to_string(),
             topic: Topic::default(),
-            data: "default data".to_string(),
-            msg_type: MessageType::Business,
-            consumer_type: ConsumerType::Send,
+            data: "".to_string(),
+            msg_type: MessageType::None,
+            consumer_type: ConsumerType::None,
         }
     }
 }

@@ -1,16 +1,14 @@
 use std::{
     collections::HashMap,
-    mem,
     sync::{Arc, RwLock},
     thread,
     time::Duration,
 };
 
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::{self, Channel, ChannelMode},
+    channel::{Channel, ChannelMode},
     msg::Message,
 };
 
@@ -32,7 +30,20 @@ pub enum GroupMode {
 
 pub struct Groups;
 impl Groups {
-    pub fn insert(group_id: String, group: Group) {
+    pub fn default_insert_group(group_id: String, mode: GroupMode) {
+        let group = Group::new(group_id.clone(), mode);
+        GROUPS
+            .write()
+            .unwrap()
+            .insert(group_id.to_string(), Arc::new(RwLock::new(group)));
+        // start message group
+        Groups::get_group_by_id(group_id)
+            .unwrap()
+            .read()
+            .unwrap()
+            .start();
+    }
+    pub fn insert_group(group_id: String, group: Group) {
         GROUPS
             .write()
             .unwrap()
@@ -46,14 +57,44 @@ impl Groups {
     }
     // insert message
     pub fn insert_message(group_id: String, topic: String, message: Message) {
-        let group = Groups::get_group_by_id(group_id).unwrap();
-        group.write().unwrap().insert_message(topic, message);
+        if Groups::contains_topic(group_id.clone(), topic.clone()) {
+            let group = Groups::get_group_by_id(group_id.clone()).unwrap();
+            group
+                .write()
+                .unwrap()
+                .insert_message(topic.clone(), message);
+        }
     }
     pub fn group_num() -> u64 {
         GROUPS.write().unwrap().len().try_into().unwrap()
     }
-    pub fn contains_id(grou_id: String) -> bool {
-        GROUPS.write().unwrap().contains_key(&grou_id)
+    pub fn get_message_num_by_topic(group_id: String, topic: String) -> u64 {
+        if Groups::contains_id(group_id.clone()) {
+            let group = Groups::get_group_by_id(group_id);
+            let message_num = group
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_channel(topic)
+                .unwrap()
+                .read()
+                .unwrap()
+                .message_num();
+            message_num
+        } else {
+            0
+        }
+    }
+    pub fn contains_id(group_id: String) -> bool {
+        GROUPS.write().unwrap().contains_key(&group_id)
+    }
+    pub fn contains_topic(group_id: String, topic: String) -> bool {
+        if Groups::contains_id(group_id.clone()) {
+            let group_id = Arc::clone(&Groups::get_mut_group_by_id(group_id.clone()).unwrap());
+            group_id.read().unwrap().contains_channel(topic.clone())
+        } else {
+            false
+        }
     }
     pub fn get_group_by_id(grou_id: String) -> Option<Arc<RwLock<Group>>> {
         if Groups::contains_id(grou_id.clone()) {
@@ -62,10 +103,69 @@ impl Groups {
             None
         }
     }
+    pub fn get_mut_group_by_id(group_id: String) -> Option<Arc<RwLock<Group>>> {
+        if Groups::contains_id(group_id.clone()) {
+            Some(Arc::clone(
+                GROUPS.write().unwrap().get_mut(&group_id).unwrap(),
+            ))
+        } else {
+            None
+        }
+    }
+    pub fn insert_channel(group_id: String, topic: String, channel_mode: ChannelMode) {
+        if Groups::contains_id(group_id.clone()) {
+            let group = Arc::clone(&Groups::get_mut_group_by_id(group_id.clone()).unwrap());
+            if !group.read().unwrap().contains_channel(topic.clone()) {
+                group
+                    .write()
+                    .unwrap()
+                    .insert_channel(topic.clone(), channel_mode);
+            }
+        }
+    }
+    pub fn get_channel_mode(grou_id: String, topic: String) -> ChannelMode {
+        if Groups::contains_id(grou_id.clone()) {
+            let group = Groups::get_group_by_id(grou_id);
+            let channel_mode = group
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_channel(topic)
+                .unwrap()
+                .read()
+                .unwrap()
+                .mode;
+            channel_mode
+        } else {
+            ChannelMode::None
+        }
+    }
+    // get a message from the channel.
+    pub fn get_a_message(grou_id: String, topic: String) -> Result<Message, ()> {
+        if Groups::contains_id(grou_id.clone()) {
+            let group = Arc::clone(&Groups::get_group_by_id(grou_id).unwrap());
+            if group.read().unwrap().contains_channel(topic.clone()) {
+                let msg = group
+                    .write()
+                    .unwrap()
+                    .get_channel(topic.clone())
+                    .unwrap()
+                    .write()
+                    .unwrap()
+                    .dequeue()
+                    .unwrap();
+                Ok(msg)
+            } else {
+                Err(())
+            }
+        } else {
+            Err(())
+        }
+    }
 }
 
 /// message queue group, the same topic in the same group shares a message channel.
-pub struct Group {
+struct Group {
     // group id
     id: String,
     // k: topic v: the message channel corresponding to the topic
@@ -99,7 +199,9 @@ impl Group {
             .unwrap()
             .start();
     }
-    pub fn remove_channel(&self) {}
+    pub fn remove_channel(&self, topic: String) {
+        self.channels.write().unwrap().remove(&topic);
+    }
     pub fn get_channel(&self, topic: String) -> Option<Arc<RwLock<Channel>>> {
         if self.contains_channel(topic.clone()) {
             Some(Arc::clone(
