@@ -5,13 +5,18 @@ use std::{
     sync::Mutex,
 };
 
+use luminmq_core::{
+    msg::{ConsumerType, Message, MessageType},
+    protocol::Protocol,
+    topic::Topic,
+};
 use mio::{
     Events, Interest, Poll, Registry, Token,
     event::Event,
     net::{TcpListener, TcpStream},
 };
 
-use crate::{config::LISTENER_PORT, msg::Message, protocol::Protocol, topic::Topic};
+use crate::config::LISTENER_PORT;
 use lazy_static::lazy_static;
 
 const SERVER_TOKEN: Token = Token(0);
@@ -93,8 +98,8 @@ fn handle_connection_event(
         let mut msg = Message::default();
         msg.group_id = "group-test".to_string();
         msg.topic = Topic::new("topic-test".to_string());
-        msg.consumer_type = crate::msg::ConsumerType::Send;
-        msg.msg_type = crate::msg::MessageType::Business;
+        msg.consumer_type = ConsumerType::Send;
+        msg.msg_type = MessageType::Business;
         protocol.insert_message(msg.to_messagedto());
         protocol.ready();
         let protocol_buf = protocol.to_byte_vec();
