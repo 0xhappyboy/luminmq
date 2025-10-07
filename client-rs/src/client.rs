@@ -30,7 +30,9 @@ impl LuminMQClient {
                     Token(0) => {
                         if event.is_readable() {
                             match Protocol::reader(&stream) {
-                                Ok(p) => {}
+                                Ok(p) => {
+                                    // received protocol
+                                }
                                 Err(e) => println!("{:?}", e),
                             }
                         }

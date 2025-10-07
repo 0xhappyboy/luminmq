@@ -1,7 +1,7 @@
 /// communication protocol
 use bincode::{Decode, Encode, error::DecodeError};
 use mio::net::TcpStream;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 
 use crate::{
     msg::{Message, MessageDTO},
@@ -149,7 +149,10 @@ impl Protocol {
         }
     }
     // protocol writer
-    pub fn writer(&self, stream: &TcpStream) {}
+    pub fn writer(mut stream: &TcpStream, protocol: &mut Protocol) {
+        let protocol_buf = protocol.to_byte_vec();
+        let _ = stream.write(&protocol_buf);
+    }
 }
 
 impl Default for Protocol {

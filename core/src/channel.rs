@@ -5,7 +5,16 @@ use std::{
     time::Duration,
 };
 
-use crate::{group::GroupMode, msg::Message, topic::Topic};
+use tokio::stream;
+
+use crate::{
+    group::GroupMode,
+    msg::{ConsumerType, Message, MessageType},
+    protocol::Protocol,
+    tool::common::get_keys_for_value,
+    topic::Topic,
+    types::{CONNECTION_POOL, CONNECTION_POOL_GROUP_BIND},
+};
 
 /// Consumption mode for messages within a channel.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,12 +33,12 @@ pub struct Channel {
     pub group_id: String,
     pub mode: ChannelMode,
     group_mode: GroupMode,
-    message_queue: Arc<RwLock<VecDeque<Message>>>,
+    message_queue: Arc<RwLock<Queue>>,
 }
 impl Channel {
     pub fn new(topic: String, group_id: String, mode: ChannelMode, group_mode: GroupMode) -> Self {
         Self {
-            message_queue: Arc::new(RwLock::new(VecDeque::new())),
+            message_queue: Arc::new(RwLock::new(Queue::new())),
             mode: mode,
             group_mode: group_mode,
             topic: Topic::new(topic),
@@ -38,11 +47,11 @@ impl Channel {
     }
     // first in
     pub fn enqueue(&mut self, message: Message) {
-        self.message_queue.write().unwrap().push_back(message);
+        self.message_queue.write().unwrap().enqueue(message);
     }
     // first out
     pub fn dequeue(&mut self) -> Option<Message> {
-        self.message_queue.write().unwrap().pop_front()
+        self.message_queue.write().unwrap().dequeue()
     }
     // is empty
     pub fn is_empty(&self) -> bool {
@@ -54,7 +63,7 @@ impl Channel {
     }
     pub fn start(&self) {
         let group_id = self.group_id.clone();
-        let topic = self.topic.clone();
+        let topic = self.topic.name.clone();
         let channel_mode = self.mode.clone();
         let queue = Arc::clone(&self.message_queue);
         let group_mode = self.group_mode.clone();
@@ -64,14 +73,31 @@ impl Channel {
                 match group_mode {
                     GroupMode::Broadcast => match channel_mode {
                         ChannelMode::Push => {
+                            // test
                             thread::sleep(Duration::from_millis(1000));
-                            // // get all connection pool token by (group id, topic)
-                            // let token_vec = get_keys_for_value(
-                            //     CONNECTION_POOL_GROUP_BIND.lock().unwrap(),
-                            //     (group_id.clone(), topic.name.clone()),
-                            // );
-                            // // get all connection by token
-                            // token_vec.iter().for_each(|token| {});
+                            let token_list = get_keys_for_value(
+                                CONNECTION_POOL_GROUP_BIND.lock().unwrap(),
+                                (group_id.clone(), topic.clone()),
+                            );
+                            token_list.iter().for_each(|token| {
+                                match CONNECTION_POOL.lock().unwrap().get(token) {
+                                    Some(stream) => {
+                                        // test protocol
+                                        let mut protocol = &mut Protocol::default();
+                                        let mut msg = Message::default();
+                                        msg.group_id = "group-test".to_string();
+                                        msg.topic = Topic::new("topic-test".to_string());
+                                        msg.consumer_type = ConsumerType::Send;
+                                        msg.msg_type = MessageType::Business;
+                                        protocol.insert_message(msg.to_messagedto());
+                                        protocol.ready();
+                                        Protocol::writer(stream, protocol);
+                                    }
+                                    None => {
+                                        // No connection source exists
+                                    }
+                                }
+                            });
                         }
                         ChannelMode::Pull => {}
                         ChannelMode::None => todo!(),
@@ -86,5 +112,39 @@ impl Channel {
                 }
             }
         });
+    }
+}
+
+struct Queue {
+    queue: VecDeque<Message>,
+}
+impl Queue {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+        }
+    }
+    // first in
+    pub fn enqueue(&mut self, message: Message) {
+        self.queue.push_back(message);
+    }
+    // first out
+    pub fn dequeue(&mut self) -> Option<Message> {
+        self.queue.pop_front()
+    }
+    // is empty
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+    // len
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+}
+impl Default for Queue {
+    fn default() -> Self {
+        Self {
+            queue: VecDeque::new(),
+        }
     }
 }

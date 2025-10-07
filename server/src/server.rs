@@ -1,14 +1,10 @@
 /// a server module for lumin message queues.
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-    sync::Mutex,
-};
+use std::io::{self};
 
 use luminmq_core::{
-    msg::{ConsumerType, Message, MessageType},
+    group::Groups,
     protocol::Protocol,
-    topic::Topic,
+    types::{CONNECTION_POOL, CONNECTION_POOL_GROUP_BIND},
 };
 use mio::{
     Events, Interest, Poll, Registry, Token,
@@ -17,17 +13,8 @@ use mio::{
 };
 
 use crate::config::LISTENER_PORT;
-use lazy_static::lazy_static;
 
 const SERVER_TOKEN: Token = Token(0);
-
-lazy_static! {
-    // connection pool
-    pub static ref CONNECTION_POOL: Mutex<HashMap<Token, TcpStream>> = Mutex::new(HashMap::<Token, TcpStream>::default());
-    // connection pool and gourp bind
-    // k: token v: (group id, topic)
-    pub static ref CONNECTION_POOL_GROUP_BIND: Mutex<HashMap<Token, (String, String)>> = Mutex::new(HashMap::<Token, (String, String)>::default());
-}
 
 pub struct LuminMQServer;
 
@@ -42,7 +29,6 @@ impl LuminMQServer {
             .register(&mut listener, Token(0), Interest::READABLE)
             .unwrap();
         let mut unique_token = Token(SERVER_TOKEN.0 + 1);
-
         loop {
             poll.poll(&mut events, None).unwrap();
             for event in &events {
@@ -64,6 +50,10 @@ impl LuminMQServer {
                             Interest::READABLE.add(Interest::WRITABLE),
                         )?;
                         CONNECTION_POOL.lock().unwrap().insert(token, connection);
+                        CONNECTION_POOL_GROUP_BIND
+                            .lock()
+                            .unwrap()
+                            .insert(token, ("group-test".to_string(), "topic-test".to_string()));
                     },
                     // system buffer changes
                     token => {
@@ -94,30 +84,35 @@ fn handle_connection_event(
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_writable() {
-        let mut protocol = &mut Protocol::default();
-        let mut msg = Message::default();
-        msg.group_id = "group-test".to_string();
-        msg.topic = Topic::new("topic-test".to_string());
-        msg.consumer_type = ConsumerType::Send;
-        msg.msg_type = MessageType::Business;
-        protocol.insert_message(msg.to_messagedto());
-        protocol.ready();
-        let protocol_buf = protocol.to_byte_vec();
-        match connection.write(&protocol_buf) {
-            Ok(n) if n < protocol_buf.len() => return Err(io::ErrorKind::WriteZero.into()),
-            Ok(_) => registry.reregister(connection, event.token(), Interest::READABLE)?,
-            Err(ref err) if would_block(err) => {}
-            Err(ref err) if interrupted(err) => {
-                return handle_connection_event(registry, connection, event);
-            }
-            Err(err) => {
-                return Err(err);
-            }
-        }
+        // Protocol::writer(connection);
+        // let mut protocol = &mut Protocol::default();
+        // let mut msg = Message::default();
+        // msg.group_id = "group-test".to_string();
+        // msg.topic = Topic::new("topic-test".to_string());
+        // msg.consumer_type = ConsumerType::Send;
+        // msg.msg_type = MessageType::Business;
+        // protocol.insert_message(msg.to_messagedto());
+        // protocol.ready();
+        // let protocol_buf = protocol.to_byte_vec();
+        // match connection.write(&protocol_buf) {
+        //     Ok(n) if n < protocol_buf.len() => return Err(io::ErrorKind::WriteZero.into()),
+        //     Ok(_) => registry.reregister(connection, event.token(), Interest::READABLE)?,
+        //     Err(ref err) if would_block(err) => {}
+        //     Err(ref err) if interrupted(err) => {
+        //         return handle_connection_event(registry, connection, event);
+        //     }
+        //     Err(err) => {
+        //         return Err(err);
+        //     }
+        // }
     }
+
     if event.is_readable() {
         match Protocol::reader(&connection) {
-            Ok(p) => {}
+            Ok(p) => {
+                let m = p.get_message().unwrap();
+                Groups::insert_message(m.group_id.clone(), m.topic.name.clone().to_string(), m);
+            }
             Err(e) => println!("{:?}", e),
         }
     }
