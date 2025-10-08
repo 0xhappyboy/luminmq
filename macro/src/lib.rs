@@ -63,3 +63,27 @@ pub fn consumer(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     output.into()
 }
+
+#[proc_macro]
+pub fn exec_consume(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::ExprTuple);
+    if input.elems.len() > 2 {
+        panic!("Expected a tuple with three elements: (function_name, arg1)");
+    }
+    let fn_name = input.elems[0].clone();
+    let arg1 = input.elems[1].clone();
+    let fn_name = if let syn::Expr::Lit(expr_lit) = &fn_name {
+        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+            lit_str
+        } else {
+            panic!("Function name must be a string literal");
+        }
+    } else {
+        panic!("Function name must be a string literal");
+    };
+    let func_ident = syn::Ident::new(&fn_name.value(), fn_name.span());
+    let expanded = quote! {
+        #func_ident(#arg1)
+    };
+    TokenStream::from(expanded)
+}

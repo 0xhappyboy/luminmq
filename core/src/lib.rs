@@ -5,4 +5,3 @@ pub mod protocol;
 pub mod tool;
 pub mod topic;
 pub mod types;
-pub mod macros;
