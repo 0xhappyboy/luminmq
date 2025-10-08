@@ -11,6 +11,8 @@ use mio::{
     event::Event,
     net::{TcpListener, TcpStream},
 };
+use tokio::stream;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::LISTENER_PORT;
 
@@ -20,6 +22,8 @@ pub struct LuminMQServer;
 
 impl LuminMQServer {
     pub async fn start() -> std::io::Result<()> {
+        // enable log
+        tracing_subscriber::registry().with(fmt::layer()).init();
         let addr = LISTENER_PORT.lock().unwrap().parse().unwrap();
         let mut listener = TcpListener::bind(addr)?;
         let mut poll = Poll::new()?;
@@ -108,13 +112,7 @@ fn handle_connection_event(
     }
 
     if event.is_readable() {
-        match Protocol::reader(&connection) {
-            Ok(p) => {
-                let m = p.get_message().unwrap();
-                Groups::insert_message(m.group_id.clone(), m.topic.name.clone().to_string(), m);
-            }
-            Err(e) => println!("{:?}", e),
-        }
+        Protocol::handle(&connection);
     }
     Ok(false)
 }
