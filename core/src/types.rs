@@ -7,11 +7,29 @@ use rand::seq::IndexedRandom;
 use crate::tool::common::get_keys_for_value;
 
 lazy_static! {
+      // consumer binder.
+    // k: (group id,topic) v: function name
+    static ref CONSUMER_BINDER: Mutex<HashMap< (String, String), String>> = Mutex::new(HashMap::< (String, String), String>::default());
     // connection pool
     static ref CONNECTION_POOL: Mutex<HashMap<Token, Mutex<TcpStream>>> = Mutex::new(HashMap::<Token, Mutex<TcpStream>>::default());
     // connection pool and gourp bind
     // k: token v: (group id, topic)
     static ref CONNECTION_POOL_GROUP_BIND: Mutex<HashMap<Token, (String, String)>> = Mutex::new(HashMap::<Token, (String, String)>::default());
+}
+
+pub struct ConsumerBinder;
+impl ConsumerBinder {
+    pub fn insert(k: (String, String), v: String) {
+        CONSUMER_BINDER.lock().unwrap().insert(k, v);
+    }
+    pub fn get(k: (String, String)) -> Result<String, String> {
+        let m = CONSUMER_BINDER.lock().unwrap();
+        if m.contains_key(&k) {
+            return Ok(m.get(&k).unwrap().to_string());
+        } else {
+            return Err("key does not exist.".to_string());
+        }
+    }
 }
 
 pub struct ConnectionPool;
