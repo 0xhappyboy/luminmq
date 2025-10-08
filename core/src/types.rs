@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use lazy_static::lazy_static;
 use mio::{Token, net::TcpStream};
+use rand::seq::IndexedRandom;
 
 use crate::tool::common::get_keys_for_value;
 
@@ -40,6 +41,10 @@ impl ConnectionPoolAndGroupBind {
     pub fn get_token_list(v: (String, String)) -> Vec<Token> {
         let token_list = get_keys_for_value(CONNECTION_POOL_GROUP_BIND.lock().unwrap(), v);
         token_list
+    }
+    pub fn get_random_token(v: (String, String)) -> Option<Token> {
+        let token_list = get_keys_for_value(CONNECTION_POOL_GROUP_BIND.lock().unwrap(), v);
+        token_list.choose(&mut rand::rng()).copied()
     }
     pub fn insert(k: Token, v: (String, String)) {
         CONNECTION_POOL_GROUP_BIND.lock().unwrap().insert(k, v);

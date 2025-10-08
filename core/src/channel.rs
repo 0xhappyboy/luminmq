@@ -94,7 +94,26 @@ impl Channel {
                     GroupMode::Cluster => match channel_mode {
                         ChannelMode::Push => {
                             // Push messages randomly to consumer clusters.
-                            thread::sleep(Duration::from_millis(1000));
+                            match ConnectionPoolAndGroupBind::get_random_token((
+                                group_id.clone(),
+                                topic.clone(),
+                            )) {
+                                Some(token) => {
+                                    ConnectionPool::handle(&token, |stream| {
+                                        match queue.write().unwrap().dequeue() {
+                                            Some(msg) => {
+                                                let _ = msg.writer(stream);
+                                            }
+                                            None => {
+                                                // there are no messages in the queue.
+                                            }
+                                        }
+                                    });
+                                }
+                                None => {
+                                    // No connection exists
+                                }
+                            }
                         }
                         ChannelMode::Pull => {}
                         ChannelMode::None => todo!(),

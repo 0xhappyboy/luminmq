@@ -68,6 +68,23 @@ impl Groups {
     pub fn group_num() -> u64 {
         GROUPS.write().unwrap().len().try_into().unwrap()
     }
+    pub fn channel_message_num(grou_id: String, topic: String) -> u64 {
+        if Groups::contains_id(grou_id.clone()) {
+            let group = Groups::get_group_by_id(grou_id);
+            let msg_num = group
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_channel(topic)
+                .unwrap()
+                .read()
+                .unwrap()
+                .message_num();
+            msg_num
+        } else {
+            0
+        }
+    }
     pub fn get_message_num_by_topic(group_id: String, topic: String) -> u64 {
         if Groups::contains_id(group_id.clone()) {
             let group = Groups::get_group_by_id(group_id);

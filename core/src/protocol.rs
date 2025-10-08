@@ -86,7 +86,7 @@ impl Protocol {
         self.body.insert_message(message_dto);
     }
     // protocol handle
-    pub fn handle(stream: &TcpStream) {
+    pub fn handle(stream: &TcpStream, call: impl Fn(Message)) {
         let mut r: BufReader<&TcpStream> = BufReader::new(stream);
         loop {
             match Protocol::reader(&mut r) {
@@ -94,6 +94,7 @@ impl Protocol {
                     // protocol
                     match protocol.get_message() {
                         Ok(mut message) => {
+                            call(message.clone());
                             message.handle(stream);
                         }
                         Err(_e) => {}
