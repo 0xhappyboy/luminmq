@@ -4,7 +4,7 @@ use std::io::{self};
 use luminmq_core::{
     group::Groups,
     protocol::Protocol,
-    types::{CONNECTION_POOL, CONNECTION_POOL_GROUP_BIND},
+    types::{ConnectionPool, ConnectionPoolAndGroupBind},
 };
 use mio::{
     Events, Interest, Poll, Registry, Token,
@@ -53,27 +53,24 @@ impl LuminMQServer {
                             token,
                             Interest::READABLE.add(Interest::WRITABLE),
                         )?;
-                        CONNECTION_POOL.lock().unwrap().insert(token, connection);
-                        CONNECTION_POOL_GROUP_BIND
-                            .lock()
-                            .unwrap()
-                            .insert(token, ("group-test".to_string(), "topic-test".to_string()));
+                        ConnectionPool::insert(token, connection);
+                        ConnectionPoolAndGroupBind::insert(
+                            token,
+                            ("group-test".to_string(), "topic-test".to_string()),
+                        );
                     },
                     // system buffer changes
                     token => {
-                        let done = if let Some(connection) =
-                            CONNECTION_POOL.lock().unwrap().get_mut(&token)
-                        {
-                            match handle_connection_event(poll.registry(), connection, event) {
+                        ConnectionPool::handle(&token, |stream| {
+                            let flag = match handle_connection_event(poll.registry(), stream, event)
+                            {
                                 Ok(_) => false,
                                 Err(_) => true,
+                            };
+                            if flag {
+                                ConnectionPool::remove(token);
                             }
-                        } else {
-                            false
-                        };
-                        if done {
-                            CONNECTION_POOL.lock().unwrap().remove(&token);
-                        }
+                        });
                     }
                     _ => {}
                 }
@@ -87,30 +84,6 @@ fn handle_connection_event(
     connection: &mut TcpStream,
     event: &Event,
 ) -> io::Result<bool> {
-    if event.is_writable() {
-        // Protocol::writer(connection);
-        // let mut protocol = &mut Protocol::default();
-        // let mut msg = Message::default();
-        // msg.group_id = "group-test".to_string();
-        // msg.topic = Topic::new("topic-test".to_string());
-        // msg.consumer_type = ConsumerType::Send;
-        // msg.msg_type = MessageType::Business;
-        // protocol.insert_message(msg.to_messagedto());
-        // protocol.ready();
-        // let protocol_buf = protocol.to_byte_vec();
-        // match connection.write(&protocol_buf) {
-        //     Ok(n) if n < protocol_buf.len() => return Err(io::ErrorKind::WriteZero.into()),
-        //     Ok(_) => registry.reregister(connection, event.token(), Interest::READABLE)?,
-        //     Err(ref err) if would_block(err) => {}
-        //     Err(ref err) if interrupted(err) => {
-        //         return handle_connection_event(registry, connection, event);
-        //     }
-        //     Err(err) => {
-        //         return Err(err);
-        //     }
-        // }
-    }
-
     if event.is_readable() {
         Protocol::handle(&connection);
     }

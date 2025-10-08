@@ -145,7 +145,7 @@ impl Groups {
         if Groups::contains_id(grou_id.clone()) {
             let group = Arc::clone(&Groups::get_group_by_id(grou_id).unwrap());
             if group.read().unwrap().contains_channel(topic.clone()) {
-                let msg = group
+                match group
                     .write()
                     .unwrap()
                     .get_channel(topic.clone())
@@ -153,8 +153,12 @@ impl Groups {
                     .write()
                     .unwrap()
                     .dequeue()
-                    .unwrap();
-                Ok(msg)
+                {
+                    Some(msg) => {
+                        return Ok(msg);
+                    }
+                    None => Err(()),
+                }
             } else {
                 Err(())
             }
@@ -223,9 +227,9 @@ impl Group {
         }
     }
     pub fn start(&self) {
-        let id = self.id.clone();
+        let _id = self.id.clone();
         let mode = self.mode.clone();
-        let channel = Arc::clone(&self.channels);
+        let _channel = Arc::clone(&self.channels);
         tokio::spawn(async move {
             loop {
                 thread::sleep(Duration::from_millis(1000));

@@ -17,8 +17,6 @@ pub mod common {
 }
 
 pub mod codec {
-    use std::io::Error;
-
     use bincode::{Decode, Encode, config, error::DecodeError};
     // coding
     pub fn encode<T>(t: T) -> Vec<u8>

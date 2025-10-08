@@ -5,15 +5,11 @@ use std::{
     time::Duration,
 };
 
-use tokio::stream;
-
 use crate::{
     group::GroupMode,
-    msg::{ConsumerType, Message, MessageType},
-    protocol::Protocol,
-    tool::common::get_keys_for_value,
+    msg::Message,
     topic::Topic,
-    types::{CONNECTION_POOL, CONNECTION_POOL_GROUP_BIND},
+    types::{ConnectionPool, ConnectionPoolAndGroupBind},
 };
 
 /// Consumption mode for messages within a channel.
@@ -75,28 +71,21 @@ impl Channel {
                         ChannelMode::Push => {
                             // test
                             thread::sleep(Duration::from_millis(1000));
-                            let token_list = get_keys_for_value(
-                                CONNECTION_POOL_GROUP_BIND.lock().unwrap(),
-                                (group_id.clone(), topic.clone()),
-                            );
+                            let token_list = ConnectionPoolAndGroupBind::get_token_list((
+                                group_id.clone(),
+                                topic.clone(),
+                            ));
                             token_list.iter().for_each(|token| {
-                                match CONNECTION_POOL.lock().unwrap().get(token) {
-                                    Some(stream) => {
-                                        // test protocol
-                                        let mut protocol = &mut Protocol::default();
-                                        let mut msg = Message::default();
-                                        msg.group_id = "group-test".to_string();
-                                        msg.topic = Topic::new("topic-test".to_string());
-                                        msg.consumer_type = ConsumerType::Send;
-                                        msg.msg_type = MessageType::Business;
-                                        protocol.insert_message(msg.to_messagedto());
-                                        protocol.ready();
-                                        Protocol::writer(stream, protocol);
+                                ConnectionPool::handle(token, |stream| {
+                                    match queue.write().unwrap().dequeue() {
+                                        Some(msg) => {
+                                            let _ = msg.writer(stream);
+                                        }
+                                        None => {
+                                            // there are no messages in the queue.
+                                        }
                                     }
-                                    None => {
-                                        // No connection source exists
-                                    }
-                                }
+                                });
                             });
                         }
                         ChannelMode::Pull => {}
@@ -104,6 +93,7 @@ impl Channel {
                     },
                     GroupMode::Cluster => match channel_mode {
                         ChannelMode::Push => {
+                            // Push messages randomly to consumer clusters.
                             thread::sleep(Duration::from_millis(1000));
                         }
                         ChannelMode::Pull => {}

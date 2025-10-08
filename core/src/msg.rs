@@ -1,4 +1,4 @@
-use std::{io::Write, mem};
+use std::io::Write;
 
 use bincode::{Decode, Encode, error::DecodeError};
 use mio::net::TcpStream;
@@ -74,20 +74,6 @@ impl MessageDTO {
     }
     pub fn to_byte_vec(&self) -> Vec<u8> {
         encode(self)
-    }
-    pub fn size(&self) -> usize {
-        // group id size
-        let group_id_size = self.group_id.len() * mem::size_of::<u8>() + 8;
-        // topic size
-        let topic_size = self.topic.len() * mem::size_of::<u8>() + 8;
-        //  msg type size
-        let msg_type_size = mem::size_of::<u16>();
-        // consumer type size
-        let consumer_type_size = mem::size_of::<u16>();
-        // data size
-        let data_size = self.data.len() * mem::size_of::<u8>() + 8;
-        // total size
-        group_id_size + topic_size + msg_type_size + consumer_type_size + data_size
     }
     pub fn to_message(&self) -> Message {
         Message {
@@ -175,7 +161,7 @@ impl Message {
         )
     }
     /// message handle
-    pub fn handle(&self, mut stream: &TcpStream) {
+    pub fn handle(&mut self, stream: &TcpStream) {
         match self.msg_type {
             MessageType::System => {
                 // system message
@@ -188,16 +174,18 @@ impl Message {
                         self.topic.name.clone(),
                     )) {
                         // handle ..
-                        let msg = Groups::get_a_message(
+                        match Groups::get_a_message(
                             self.group_id.to_string(),
                             self.topic.name.to_string(),
-                        )
-                        .unwrap();
-                        let mut protocol = &mut Protocol::default();
-                        protocol.insert_message(msg.to_messagedto());
-                        protocol.ready();
-                        let protocol_buf = protocol.to_byte_vec();
-                        stream.write(&protocol_buf);
+                        ) {
+                            Ok(msg) => {
+                                let _ = msg.writer(stream);
+                            }
+                            Err(_) => {
+                                self.data = "No message exists.".to_string();
+                                let _ = self.writer(stream);
+                            }
+                        }
                     }
                 }
                 ConsumerType::Send => {
@@ -211,6 +199,21 @@ impl Message {
                 ConsumerType::None => {}
             },
             MessageType::None => (),
+        }
+    }
+    // massge writer
+    pub fn writer(&self, mut stream: &TcpStream) -> Result<usize, String> {
+        let protocol = &mut Protocol::default();
+        protocol.insert_message(self.to_messagedto());
+        let _ = protocol.ready();
+        let protocol_buf = protocol.to_byte_vec();
+        match stream.write(&protocol_buf) {
+            Ok(size) => {
+                return Ok(size);
+            }
+            Err(e) => {
+                return Err(format!("{:?}", e));
+            }
         }
     }
 }

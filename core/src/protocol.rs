@@ -92,8 +92,14 @@ impl Protocol {
             match Protocol::reader(&mut r) {
                 Ok(protocol) => {
                     // protocol
+                    match protocol.get_message() {
+                        Ok(mut message) => {
+                            message.handle(stream);
+                        }
+                        Err(_e) => {}
+                    }
                 }
-                Err(e) => {
+                Err(_e) => {
                     break;
                 }
             }
