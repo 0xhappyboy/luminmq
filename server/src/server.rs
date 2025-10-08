@@ -3,6 +3,7 @@ use std::io::{self};
 
 use luminmq_core::{
     group::Groups,
+    msg,
     protocol::Protocol,
     types::{ConnectionPool, ConnectionPoolAndGroupBind},
 };
@@ -85,7 +86,7 @@ fn handle_connection_event(
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_readable() {
-        Protocol::handle(&connection);
+        Protocol::handle(&connection, |msg| {});
     }
     Ok(false)
 }
