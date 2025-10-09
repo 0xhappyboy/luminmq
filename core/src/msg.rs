@@ -22,6 +22,17 @@ pub enum MessageType {
     None,
 }
 
+/// message type
+#[derive(Encode, Decode, PartialEq, Debug, Clone)]
+pub enum MessageStatus {
+    // success
+    Success,
+    // fail
+    Fail,
+    // none
+    None,
+}
+
 /// consumer type
 #[derive(Encode, Decode, PartialEq, Debug, Clone)]
 pub enum ConsumerType {
@@ -49,6 +60,11 @@ pub struct MessageDTO {
     // 0: pull
     // 1: Send
     consumer_type: u16,
+    // message status
+    // 0: success
+    // 1: fail
+    // 2: none
+    status: u16,
     // business data. If msg_type is 0, this field may be empty.
     data: String,
 }
@@ -59,6 +75,7 @@ impl MessageDTO {
         topic: String,
         msg_type: u16,
         consumer_type: u16,
+        status: u16,
         data: String,
     ) -> Self {
         Self {
@@ -66,6 +83,7 @@ impl MessageDTO {
             topic: topic,
             msg_type: msg_type,
             consumer_type: consumer_type,
+            status: status,
             data: data,
         }
     }
@@ -96,6 +114,13 @@ impl MessageDTO {
             } else {
                 ConsumerType::None
             },
+            status: if self.status == 0 {
+                MessageStatus::Success
+            } else if self.status == 1 {
+                MessageStatus::Fail
+            } else {
+                MessageStatus::None
+            },
         }
     }
 }
@@ -107,6 +132,7 @@ impl Default for MessageDTO {
             topic: "".to_string(),
             msg_type: 0,
             consumer_type: 0,
+            status: 0,
             data: "".to_string(),
         }
     }
@@ -119,6 +145,7 @@ pub struct Message {
     pub data: String,
     pub msg_type: MessageType,
     pub consumer_type: ConsumerType,
+    pub status: MessageStatus,
 }
 
 impl Message {
@@ -128,6 +155,7 @@ impl Message {
         data: String,
         msg_type: MessageType,
         consumer_type: ConsumerType,
+        status: MessageStatus,
     ) -> Self {
         Self {
             group_id: group_id,
@@ -135,6 +163,7 @@ impl Message {
             data: data,
             msg_type: msg_type,
             consumer_type: consumer_type,
+            status: status,
         }
     }
     pub fn is_group_id_empty(&self) -> bool {
@@ -156,6 +185,11 @@ impl Message {
                 ConsumerType::Pull => 0,
                 ConsumerType::Send => 1,
                 ConsumerType::None => 2,
+            },
+            match self.status {
+                MessageStatus::Success => 0,
+                MessageStatus::Fail => 1,
+                MessageStatus::None => 2,
             },
             self.data.to_string(),
         )
@@ -182,6 +216,7 @@ impl Message {
                                 let _ = msg.writer(stream);
                             }
                             Err(_) => {
+                                self.status = MessageStatus::Fail;
                                 self.data = "No message exists.".to_string();
                                 let _ = self.writer(stream);
                             }
@@ -226,6 +261,7 @@ impl Default for Message {
             data: "".to_string(),
             msg_type: MessageType::None,
             consumer_type: ConsumerType::None,
+            status: MessageStatus::None,
         }
     }
 }
