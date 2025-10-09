@@ -88,8 +88,8 @@ impl Channel {
                                 });
                             });
                         }
-                        ChannelMode::Pull => {}
-                        ChannelMode::None => todo!(),
+                        ChannelMode::Pull => (),
+                        ChannelMode::None => (),
                     },
                     GroupMode::Cluster => match channel_mode {
                         ChannelMode::Push => {
@@ -115,8 +115,8 @@ impl Channel {
                                 }
                             }
                         }
-                        ChannelMode::Pull => {}
-                        ChannelMode::None => todo!(),
+                        ChannelMode::Pull => (),
+                        ChannelMode::None => (),
                     },
                 }
             }
