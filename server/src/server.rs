@@ -13,6 +13,7 @@ use mio::{
     net::{TcpListener, TcpStream},
 };
 use tokio::stream;
+use tracing::{Level, event, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::LISTENER_PORT;
@@ -23,8 +24,6 @@ pub struct LuminMQServer;
 
 impl LuminMQServer {
     pub async fn start() -> std::io::Result<()> {
-        // enable log
-        tracing_subscriber::registry().with(fmt::layer()).init();
         let addr = LISTENER_PORT.lock().unwrap().parse().unwrap();
         let mut listener = TcpListener::bind(addr)?;
         let mut poll = Poll::new()?;
@@ -34,6 +33,7 @@ impl LuminMQServer {
             .register(&mut listener, Token(0), Interest::READABLE)
             .unwrap();
         let mut unique_token = Token(SERVER_TOKEN.0 + 1);
+        event!(Level::INFO, "STARTED SUCCESS");
         loop {
             poll.poll(&mut events, None).unwrap();
             for event in &events {
@@ -63,8 +63,12 @@ impl LuminMQServer {
                     // system buffer changes
                     token => {
                         ConnectionPool::handle(&token, |stream| {
-                            let flag = match handle_connection_event(poll.registry(), stream, event)
-                            {
+                            event!(
+                                Level::INFO,
+                                "client access received, address:{:?}",
+                                stream.peer_addr()
+                            );
+                            let flag = match handle_connection_event(stream, event) {
                                 Ok(_) => false,
                                 Err(_) => true,
                             };
@@ -80,11 +84,7 @@ impl LuminMQServer {
     }
 }
 
-fn handle_connection_event(
-    registry: &Registry,
-    connection: &mut TcpStream,
-    event: &Event,
-) -> io::Result<bool> {
+fn handle_connection_event(connection: &mut TcpStream, event: &Event) -> io::Result<bool> {
     if event.is_readable() {
         Protocol::handle(&connection, |msg| {});
     }
@@ -95,12 +95,4 @@ fn next(current: &mut Token) -> Token {
     let next = current.0;
     current.0 += 1;
     Token(next)
-}
-
-fn would_block(err: &io::Error) -> bool {
-    err.kind() == io::ErrorKind::WouldBlock
-}
-
-fn interrupted(err: &io::Error) -> bool {
-    err.kind() == io::ErrorKind::Interrupted
 }

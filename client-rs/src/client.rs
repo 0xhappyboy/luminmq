@@ -16,8 +16,6 @@ use std::io::{self};
 pub struct LuminMQClient;
 impl LuminMQClient {
     pub async fn start() -> std::io::Result<()> {
-        // enable log
-        tracing_subscriber::registry().with(fmt::layer()).init();
         let addr = LISTENER_PORT.lock().unwrap().parse().unwrap();
         let mut stream = TcpStream::connect(addr)?;
         let mut poll = Poll::new()?;
