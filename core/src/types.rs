@@ -1,15 +1,18 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Mutex,
+};
 
 use lazy_static::lazy_static;
 use mio::{Token, net::TcpStream};
 use rand::seq::IndexedRandom;
 
-use crate::tool::common::get_keys_for_value;
+use crate::{msg::Message, tool::common::get_keys_for_value};
 
 lazy_static! {
       // consumer binder.
     // k: (group id,topic) v: function name
-    static ref CONSUMER_BINDER: Mutex<HashMap< (String, String), String>> = Mutex::new(HashMap::< (String, String), String>::default());
+    static ref CONSUMER_BINDER: Mutex<HashMap< (String, String), fn(Message) -> Result<String, String>>> = Mutex::new(HashMap::< (String, String), fn(Message) -> Result<String, String>>::default());
     // connection pool
     static ref CONNECTION_POOL: Mutex<HashMap<Token, Mutex<TcpStream>>> = Mutex::new(HashMap::<Token, Mutex<TcpStream>>::default());
     // connection pool and gourp bind
@@ -19,13 +22,13 @@ lazy_static! {
 
 pub struct ConsumerBinder;
 impl ConsumerBinder {
-    pub fn insert(k: (String, String), v: String) {
-        CONSUMER_BINDER.lock().unwrap().insert(k, v);
+    pub fn insert(k: (String, String), v: fn(Message) -> Result<String, String>) {
+        CONSUMER_BINDER.lock().unwrap().insert(k.clone(), v);
     }
-    pub fn get(k: (String, String)) -> Result<String, String> {
+    pub fn get(k: (String, String)) -> Result<fn(Message) -> Result<String, String>, String> {
         let m = CONSUMER_BINDER.lock().unwrap();
         if m.contains_key(&k) {
-            return Ok(m.get(&k).unwrap().to_string());
+            return Ok(*m.get(&k).unwrap());
         } else {
             return Err("key does not exist.".to_string());
         }
