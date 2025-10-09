@@ -212,7 +212,8 @@ impl Message {
                             self.group_id.to_string(),
                             self.topic.name.to_string(),
                         ) {
-                            Ok(msg) => {
+                            Ok(mut msg) => {
+                                msg.status = MessageStatus::Success;
                                 let _ = msg.writer(stream);
                             }
                             Err(_) => {
